@@ -7,8 +7,6 @@ namespace MyUDP
 {
     public class DroneData
     {
-        private Byte state0;
-        private Byte state1;
         private UInt16 leftTopX;
         private UInt16 leftTopY;
         private UInt16 rightBottomX;
@@ -24,32 +22,6 @@ namespace MyUDP
         private UInt16 upDownAngle;
 
         private Byte verification;
-
-        public byte State0
-        {
-            get
-            {
-                return state0;
-            }
-
-            set
-            {
-                state0 = value;
-            }
-        }
-
-        public byte State1
-        {
-            get
-            {
-                return state1;
-            }
-
-            set
-            {
-                state1 = value;
-            }
-        }
 
         public ushort LeftTopX
         {
@@ -249,8 +221,6 @@ namespace MyUDP
         //ctl r ctl e
         public DroneData(Byte[] source)
         {
-            state0 = source[0];
-            state1 = source[1];
             leftTopX = BitConverter.ToUInt16(source,14);
             leftTopY = BitConverter.ToUInt16(source, 16);
             rightBottomX = BitConverter.ToUInt16(source, 18);
@@ -265,7 +235,7 @@ namespace MyUDP
             directAngle = BitConverter.ToUInt16(source, 36);
             upDownAngle = BitConverter.ToUInt16(source, 38);
             this.fly = new FlyData(source,46);
-
+            verification = source[79];
         }
         private FlyData fly;
     }
@@ -549,7 +519,5 @@ namespace MyUDP
                 rHeight = value;
             }
         }
-        // 40
-        // private Byte
     }
 }

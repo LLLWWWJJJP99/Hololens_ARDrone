@@ -34,12 +34,14 @@ public class DemoSocket : MonoBehaviour
     private readonly static Queue<Action> ExecuteOnMainThread = new Queue<Action>();
     private GameObject [] parents;
     private bool controllerConnection = false;
-    private GoogleMap map;
+    private MapController map;
     private VideoPanelManager3 videoManager;
     private GameObject anchor;
     private Transform anchorTransform;
     private Vector3[] vectors;
     private bool prepared = false;
+    private PositionInfo position;
+    private bool good = true;
     public ControllerInput ControllerInput
     {
         get
@@ -79,6 +81,19 @@ public class DemoSocket : MonoBehaviour
         }
     }
 
+    public bool Good
+    {
+        get
+        {
+            return good;
+        }
+
+        set
+        {
+            good = value;
+        }
+    }
+
 #if UNITY_UWP
     DatagramSocket socket;
 
@@ -95,7 +110,7 @@ public class DemoSocket : MonoBehaviour
         infos = GameObject.FindGameObjectsWithTag("label");
 
         parents = GameObject.FindGameObjectsWithTag("parent");
-        map = GameObject.Find("Canvas/PanelMap/Plane").GetComponent<GoogleMap>();
+        map = MapController.GetMapController();
         videoManager = GameObject.Find("Canvas/PanelVideo").GetComponent<VideoPanelManager3>();
         texts = new Text[infos.Length];
         originalTexts = new string[infos.Length];
@@ -152,12 +167,31 @@ public class DemoSocket : MonoBehaviour
         // 验证同步码
         if ("AA-55" == hearderStr)
         {
-            
             Byte[] data = new Byte[80];
             await streamIn.ReadAsync(data, 0, 80);
             // 类型为数据
-
             DroneData droneData = new DroneData(data);
+
+            int sum = 0;
+            for (int i = 0; i < 80; i++)
+            {
+                sum += data[i];
+            }
+            string str = Convert.ToString(sum, 2);
+            string real = str;
+            if (real.Length >= 8)
+            {
+                real = str.Substring(str.Length - 8);
+            }
+            下面的代码是校验和对比，测试时可以注释掉
+            Byte verification = Convert.ToByte(real, 2);
+            if (verification != droneData.Verification)
+            {
+                Debug.Log("Verification byte is wrong");
+                return;
+            }
+
+            Debug.Log("Data: "+BitConverter.ToString(data));
             if (anchor!=null&&videoManager.Captured) {
                 float leftTopX = Convert.ToSingle(droneData.LeftTopX);
                 float leftTopY = Convert.ToSingle(droneData.LeftTopY);
@@ -191,86 +225,13 @@ public class DemoSocket : MonoBehaviour
                     rightBottomY = 1080;
                 }
                 vectors = new Vector3[2];
-                vectors[0] = new Vector3(leftTopX,leftTopY,0);
-                vectors[1] = new Vector3(rightBottomX, rightBottomY, 0);
+                vectors[0] = new Vector3(leftTopX,-leftTopY,0);
+                vectors[1] = new Vector3(rightBottomX, -rightBottomY, 0);
                 prepared = true;
-                
             }  
-            Debug.Log("data:" + droneData.Fly.Year+" || "+droneData.LeftTopX);
+
             UnityEngine.WSA.Application.InvokeOnAppThread(() =>
                 {
-                    string state0 = Convert.ToString(droneData.State0, 2).PadLeft(8, '0'); ;
-
-                    char[] s0 = state0.ToCharArray();
-
-                    string state1 = Convert.ToString(droneData.State1, 2).PadLeft(8, '0'); ;
-
-                    char[] s1 = state0.ToCharArray();
-
-                    State0Object object0 = new State0Object();
-                    if (s0[0] == '0')
-                    {
-                        object0.DirectionDrive = "空闲";
-                    }
-                    else if (s0[0] == '1')
-                    {
-                        object0.DirectionDrive = "使能";
-                    }
-
-                    if (s0[1] == '0')
-                    {
-                        object0.UpDownDrive = "空闲";
-                    }
-                    else if (s0[1] == '1')
-                    {
-                        object0.UpDownDrive = "使能";
-                    }
-
-                    if (s0[5] == '0')
-                    {
-                        object0.Light = "正常图";
-                    }
-                    else if (s0[5] == '1')
-                    {
-                        object0.Light = "测试图";
-                    }
-
-                    State1Object object1 = new State1Object();
-                    if (s1[0] == '0' && s1[1] == '0' && s1[2] == '0')
-                    {
-                        object1.ImageEnhancement = "不增强";
-                    }
-                    else if (s1[0] == '1' && s1[1] == '0' && s1[2] == '0')
-                    {
-                        object1.ImageEnhancement = "弱增强";
-                    }
-                    else if (s1[0] == '0' && s1[1] == '1' && s1[2] == '0')
-                    {
-                        object1.ImageEnhancement = "中增强";
-                    }
-                    else if (s1[0] == '1' && s1[1] == '1' && s1[2] == '0')
-                    {
-                        object1.ImageEnhancement = "强增强";
-                    }
-
-                    char[] tmp = new char[3];
-                    for (int i = 0; i < tmp.Length; i++)
-                    {
-                        tmp[i] = s1[i + 3];
-                    }
-
-                    switch (new string(tmp))
-                    {
-                        case "000":
-                            object1.Multiples = "预留";
-                            break;
-                        case "001":
-                            object1.Multiples = "1倍";
-                            break;
-                        case "010":
-                            object1.Multiples = "2倍";
-                            break;
-                    }
 
                     for (int i = 0; i < infos.Length; i++)
                     {
@@ -303,11 +264,11 @@ public class DemoSocket : MonoBehaviour
                                 {
                                     hour = 0;
                                 }
-                                if (min < 0 || min > 99)
+                                if (min < 0 || min > 59)
                                 {
                                     min = 0;
                                 }
-                                if (sec < 0 || sec > 99)
+                                if (sec < 0 || sec > 59)
                                 {
                                     sec = 0;
                                 }
@@ -318,97 +279,199 @@ public class DemoSocket : MonoBehaviour
                                 texts[i].text = originalTexts[i] + (" " + year + "年 " + month + "月 " + date + "日 " + hour + "时 " + min + "分 " + sec + "秒 " + percentSec + "百分秒").ToString();
                                 break;
                             case "flytime":
-
-                                break;
-                            case "battery2":
-
+                                int v8 = droneData.Fly.Stars;
+                                if (v8 < 0) {
+                                    v8 = 0;
+                                } else if (v8>24) {
+                                    v8 = 24;
+                                }
+                                texts[i].text = originalTexts[i] + (v8).ToString() + "颗";
                                 break;
                             case "flyangle2":
-                                texts[i].text = originalTexts[i] + (droneData.Fly.MovingAngle * 0.01f).ToString() + "°";
+                                int v5 = (int)(droneData.Fly.MovingAngle * 0.01);
+                                if (v5 < 0) {
+                                    v5 = 0;
+                                } else if (v5>360) {
+                                    v5 = 360;
+                                }
+                                texts[i].text = originalTexts[i] + (v5).ToString() + "°";
                                 break;
                             case "updownangle2":
-                                texts[i].text = originalTexts[i] + (droneData.Fly.UpdownAngle * 0.01f).ToString() + "°";
+                                int v6 = (int)(droneData.Fly.UpdownAngle * 0.01);
+                                if (v6 < -90)
+                                {
+                                    v6 = -90;
+                                }
+                                else if (v6 > 90)
+                                {
+                                    v6 = 90;
+                                }
+                                texts[i].text = originalTexts[i] + (v6).ToString() + "°";
                                 break;
                             case "rotateangle":
+                                int v7 = (int)(droneData.Fly.UpdownAngle * 0.01);
+                                if (v7 < -90)
+                                {
+                                    v7 = 90;
+                                }
+                                else if (v7 > 90)
+                                {
+                                    v7 = 90;
+                                }
                                 texts[i].text = originalTexts[i] + (droneData.Fly.RotateAngle * 0.01f).ToString() + "°";
                                 break;
                             case "attitude":
-                                texts[i].text = originalTexts[i] + (droneData.Fly.Height).ToString() + "M";
+                                int v9 = droneData.Fly.Height;
+                                if (v9 < -500) {
+                                    v9 = -500;
+                                } else if (v9>6000) {
+                                    v9 = 6000;
+                                }
+                                texts[i].text = originalTexts[i] + (v9).ToString() + "M";
+                                break;
+                            case "speed":
+                                int v10 = droneData.Fly.Speed;
+                                if (v10 < 0) {
+                                    v10 = 0;
+                                } else if (v10 > 1200) {
+                                    v10 = 1200;
+                                }
+                                texts[i].text = originalTexts[i] + (v10).ToString() + "Km\\h";
                                 break;
                             case "longitude":
-                                float f = droneData.Fly.Longtitude;
-                                if (f < -90)
+                                float f = droneData.Fly.Longtitude * 0.0000001f;
+
+                                if (f < -180)
                                 {
-                                    f = -90f;
+                                    f = -180;
                                 }
-                                else if (f > 90)
+                                else if (f > 180)
                                 {
-                                    f = 90f;
+                                    f = 180;
                                 }
                                 texts[i].text = originalTexts[i] + (f).ToString() + "°";
-                                map.Lonti = f; //经度
-
+                                //经度
+                                position = new PositionInfo();
+                                position.Longti = f;
                                 gps.text = texts[i].text;
                                 break;
                             case "latitude":
-                                float f2 = droneData.Fly.Latitude * 0.0000001f;
-                                if (f2 < -180)
-                                {
-                                    f2 = -180f;
-                                }
-                                else if (f2 > 180)
-                                {
-                                    f2 = 180f;
-                                }
-                                texts[i].text = originalTexts[i] + (f2).ToString() + "°";
+                                //纬度
 
-                                map.Al = f2; //纬度 刚量少* -10^7?
+                                float f2 = droneData.Fly.Latitude * 0.0000001f;
+
+                                if (f2 < -90)
+                                {
+                                    f2 = -90;
+                                }
+                                else if (f2 > 90)
+                                {
+                                    f2 = 90;
+                                }
+
+                                texts[i].text = originalTexts[i] + (f2).ToString() + "°";
                                 gps.text += texts[i].text;
+                                position.Lati = f2;
+                                //下面这行代码会在地图上画点，但是之前做的都不符合要求，现在被我注释掉了
+                                MapController.GetMapController().AddPoints(position.Longti,position.Lati);                     
+
                                 break;
                             case "status":
-
+                                string state = Convert.ToString(droneData.State2, 2).PadLeft(8, '0');
+                                string s = "";
+                                if (state[0] == '0') {
+                                    s = "未跟踪好";
+                                    good = false;
+                                } else if (state[0]=='1') {
+                                    s = "已跟踪好";
+                                    good = true;
+                                }
+                                texts[i].text = originalTexts[i] + s;
                                 break;
                             case "hangji":
-                                texts[i].text = originalTexts[i] + (droneData.Fly.TrackAngle * 0.1f).ToString() + "°";
-                                break;
-                            case "focallength":
-                                //texts[i].text = originalTexts[i] + (droneData.CFocuse * 0.01f).ToString() + "mm";
-                                break;
-                            case "resolutionh":
-                                //texts[i].text = originalTexts[i] + (droneData.Resolution_h).ToString() + "像素";
-                                break;
-                            case "resolutionv":
-                                //texts[i].text = originalTexts[i] + (droneData.Resolution_v).ToString() + "像素";
-                                break;
-                            case "enforce":
-                                texts[i].text = originalTexts[i] + (object1.ImageEnhancement).ToString();
-                                break;
-                            case "zoomfactor":
-
-                                break;
-                            case "status2":
-
+                                int v11 = (int)(droneData.Fly.TrackAngle * 0.1);
+                                if (v11 < 0) {
+                                    v11 = 0;
+                                } else if (v11>360) {
+                                    v11 = 360;
+                                }
+                                texts[i].text = originalTexts[i] + (v11).ToString() + "°";
                                 break;
                             case "flyangle":
-
+                                int value1 = (int)(droneData.PtUpDown * 0.01);
+                                if (value1 > 90)
+                                {
+                                    value1 = 90;
+                                }
+                                else if (value1 < -90)
+                                {
+                                    value1 = -90;
+                                }
+                                texts[i].text = originalTexts[i] + value1.ToString()+ "°";
                                 break;
                             case "updownangle":
-
+                                int value = (int)(droneData.PtUpDown*0.01);
+                                if (value > 2) {
+                                    value = 2;
+                                } else if (value<-90) {
+                                    value = -90;
+                                }
+                                texts[i].text = originalTexts[i] + value.ToString()+ "°";
                                 break;
                             case "gyro":
-
+                                Byte mode = droneData.WorkMode;
+                                string str1 = "";
+                                switch (mode) {
+                                    case 0x20:
+                                        str1 = "目标指向";
+                                        break;
+                                    case 0x40:
+                                        str1 = "手动搜索";
+                                        break;
+                                    case 0x80:
+                                        str1 = "目标跟踪";
+                                        break;
+                                }
+                                texts[i].text = originalTexts[i] + str1;
                                 break;
                             case "locationdrive":
-                                texts[i].text = originalTexts[i] + (object0.DirectionDrive).ToString();
+                                int v1 = droneData.UpDownOffset;
+                                if (v1 < -540) {
+                                    v1 = -540;
+                                } else if (v1>540) {
+                                    v1 = 540;
+                                }
+                                texts[i].text = originalTexts[i] + v1.ToString()+"像素";
+                                break;
+                            case "directanglespeed":
+                                int v3 = droneData.DirectAngle;
+                                v3 = (int)(v3 * 0.01);
+                                texts[i].text = originalTexts[i] + v3.ToString()+ "°/s";
+                                break;
+                            case "updownanglespeed":
+                                int v4 = droneData.UpDownAngle;
+                                v4 = (int)(v4 * 0.01);
+                                texts[i].text = originalTexts[i] + v4.ToString() + "°/s";
                                 break;
                             case "updowndrive":
-                                texts[i].text = originalTexts[i] + (object0.UpDownDrive).ToString();
+                                int v2 = droneData.DirectOffset;
+                                if (v2 < -960) {
+                                    v2 = -960;
+                                } else if (v2>960) {
+                                    v2 = 960;
+                                }
+                                texts[i].text = originalTexts[i] + v2.ToString()+"像素";
                                 break;
                             case "ptzstatus":
-
+                                UInt32 seq = droneData.Sequence;
+                                if (seq < 0x00000000) {
+                                    seq = 0x00000000;
+                                } else if (seq>0xffffffff) {
+                                    seq = 0xffffffff;
+                                }
+                                texts[i].text = originalTexts[i] + seq.ToString();
                                 break;
                             case "battery":
-                                Debug.Log("battery");
                                 var aggBattery = Battery.AggregateBattery;
                                 var report = aggBattery.GetReport();
                                 double full = Convert.ToDouble(report.FullChargeCapacityInMilliwattHours.ToString());
@@ -417,74 +480,21 @@ public class DemoSocket : MonoBehaviour
                                 texts[i].text = originalTexts[i] + (int)percent + "%";
                                 break;
                             case "wifistatus":
-                                Debug.Log("wifistatus");
                                 string wifi = (System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable() == true ? "已连接" : "未连接");
                                 texts[i].text = originalTexts[i] + wifi;
                                 break;
                             case "controllerstatus":
-                                Debug.Log("controllerstatus");
                                 string controllerStatus = (controllerConnection == true ? "手柄已连接" : "手柄未连接");
                                 texts[i].text = originalTexts[i] + controllerStatus;
                                 break;
-                            case "bomen":
-
-                                break;
-                            case "zijian":
-
-                                break;
-                            case "genzong":
-
-                                break;
-                            case "rengong":
-
-                                break;
-                            case "zidong":
-
-                                break;
-                            case "photo":
-
-                                break;
-                            case "recording":
-
-                                break;
-                            case "xunhang":
-
-                                break;
-                            case "raofei":
-
-                                break;
-                            case "pianchah":
-
-                                break;
-                            case "pianchaf":
-
-                                break;
-                            case "weitiaoh":
-
-                                break;
-                            case "weitiaof":
-
-                                break;
-                            case "t1h":
-
-                                break;
-                            case "t1z":
-
-                                break;
-                            case "t2h":
-
-                                break;
-                            case "t2z":
-
-                                break;
-                            case "target":
-
-                                break;
-                            case "targeth":
-
-                                break;
-                            case "targetz":
-
+                            case "rheight":
+                                float v13 = droneData.Fly.RHeight * 0.1f;
+                                if (v13 < -1000) {
+                                    v13 = -1000f;
+                                } else if (v13>3000) {
+                                    v13 = 3000f;
+                                }
+                                texts[i].text = originalTexts[i] + v13 +"m";
                                 break;
                         }
                     }
@@ -530,7 +540,7 @@ public class DemoSocket : MonoBehaviour
             }
         }
     }
-
+    //发送选框的坐标指令
     public async void SendCoordinateInfo(float x1,float y1,float x2,float y2)
     {
 
@@ -595,11 +605,12 @@ public class DemoSocket : MonoBehaviour
         }
         string str = Convert.ToString(sum, 2);
         string real = str.Substring(str.Length-8);
-        data[44] = Convert.ToByte(real.PadLeft(8, '0'),2);//???
+        data[44] = Convert.ToByte(real,2);//???
         await SendMessage(data);
     }
 
     private bool searchDone = false;
+    //发送目标搜索周期性指令
     public async void SendSearchManually(float x1, float y1)
     {
 
@@ -653,11 +664,11 @@ public class DemoSocket : MonoBehaviour
             real = str.Substring(str.Length - 8);
         }
 
-        data[44] = Convert.ToByte(real.PadLeft(8, '0'), 2);//???
+        data[44] = Convert.ToByte(real, 2);//???
 
         await SendMessage(data);
     }
-
+    //发送悬停指令
     public async void SendHoverOrder()
     {
         byte[] data = new byte[45];
@@ -685,10 +696,10 @@ public class DemoSocket : MonoBehaviour
         {
             real = str.Substring(str.Length - 8);
         }
-        data[44] = Convert.ToByte(real.PadLeft(8, '0'), 2);//???
+        data[44] = Convert.ToByte(real, 2);//???
         await SendMessage(data);
     }
-
+    //发送半自动指令
     public async void SendHalfAutoOrder()
     {
         byte[] data = new byte[45];
@@ -716,10 +727,10 @@ public class DemoSocket : MonoBehaviour
         {
             real = str.Substring(str.Length - 8);
         }
-        data[44] = Convert.ToByte(real.PadLeft(8, '0'), 2);//???
+        data[44] = Convert.ToByte(real, 2);//???
         await SendMessage(data);
     }
-
+    //发送全自动指令
     public async void SendCompleteAutoOrder()
     {
         byte[] data = new byte[45];
@@ -747,10 +758,10 @@ public class DemoSocket : MonoBehaviour
         {
             real = str.Substring(str.Length - 8);
         }
-        data[44] = Convert.ToByte(real.PadLeft(8, '0'), 2);//???
+        data[44] = Convert.ToByte(real, 2);//???
         await SendMessage(data);
     }
-
+    //手柄按钮被按以后发送信息
     private async System.Threading.Tasks.Task SendControllerInfo(string message)
     {
         using (var stream = await socket.GetOutputStreamAsync(new Windows.Networking.HostName(local), externalPort))
@@ -766,7 +777,7 @@ public class DemoSocket : MonoBehaviour
             }
         }
     }
-    // Modify 4/14/2017
+    // Modify 4/14/2017 手柄按钮被按以后发送信息
     private async void GetControllerInfo() {
         leftStickValue = "AGetPressed";
         await SendControllerInfo(leftStickValue);
@@ -817,96 +828,41 @@ public class DemoSocket : MonoBehaviour
 #endif
     // Modify 4/14/2017
 }
+internal class PositionInfo {
+    private float longti;
+    private float lati;
 
-internal class State1Object
-{
-    public State1Object() { }
+    public PositionInfo() { }
 
-    public State1Object(string imageEnhancement, string multiples)
+    public PositionInfo(float longti, float lati)
     {
-        this.imageEnhancement = imageEnhancement;
-        this.multiples = multiples;
+        this.longti = longti;
+        this.lati = lati;
     }
 
-    private string imageEnhancement;
-    private string multiples;
-
-    public string ImageEnhancement
+    public float Longti
     {
         get
         {
-            return imageEnhancement;
+            return longti;
         }
 
         set
         {
-            imageEnhancement = value;
+            longti = value;
         }
     }
 
-    public string Multiples
+    public float Lati
     {
         get
         {
-            return multiples;
+            return lati;
         }
 
         set
         {
-            multiples = value;
-        }
-    }
-}
-
-internal class State0Object
-{
-    private string directionDrive;
-    private string upDownDrive;
-    private string light;
-    public State0Object() { }
-    public State0Object(string directionDrive, string upDownDrive, string light)
-    {
-        this.directionDrive = directionDrive;
-        this.upDownDrive = upDownDrive;
-        this.light = light;
-    }
-
-    public string DirectionDrive
-    {
-        get
-        {
-            return directionDrive;
-        }
-
-        set
-        {
-            directionDrive = value;
-        }
-    }
-
-    public string UpDownDrive
-    {
-        get
-        {
-            return upDownDrive;
-        }
-
-        set
-        {
-            upDownDrive = value;
-        }
-    }
-
-    public string Light
-    {
-        get
-        {
-            return light;
-        }
-
-        set
-        {
-            light = value;
+            lati = value;
         }
     }
 }
